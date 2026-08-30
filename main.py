@@ -1,79 +1,78 @@
-import numpy
-import pyaudio
-import pygame
+import numpy as np
+import pygame as pg
+import soundcard as sc
 
-pygame.init()
+pg.init()
 
 WIDTH, HEIGHT = 1044, 512
 
-FREQUENCY = 44100 * 2
+FREQUENCY = 48000
 SAMPLES = 2048
 
-screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE, vsync=1)
-pygame.display.set_caption("Spectrum Analysis")
+HANN_WINDOW = np.hanning(SAMPLES)
 
-history = numpy.ndarray((SAMPLES // 2 + 1, 1024))
+screen = pg.display.set_mode((WIDTH, HEIGHT), pg.RESIZABLE, vsync=1)
+pg.display.set_caption("Spectrum Analysis")
 
-clock = pygame.time.Clock()
+history = np.ndarray((SAMPLES // 2 + 1, 1024))
 
-audio = pyaudio.PyAudio()
+clock = pg.time.Clock()
 
-stream = audio.open(FREQUENCY, 1, pyaudio.paInt16, True, frames_per_buffer=SAMPLES)
+device = sc.get_microphone(id=str(sc.default_speaker().name), include_loopback=True)
 
 
 def draw_heatmap(x, y, width, height):
-    heatmap = pygame.Surface((SAMPLES // 2, height))
+    heatmap = pg.Surface((SAMPLES // 2, height))
 
-    pixels = pygame.surfarray.pixels3d(heatmap)
+    pixels = pg.surfarray.pixels3d(heatmap)
     pixels[:, :, 1] = history[: SAMPLES // 2, :height]
     del pixels
 
-    screen.blit(pygame.transform.smoothscale(heatmap, (width, height)), (x, y))
+    screen.blit(pg.transform.smoothscale(heatmap, (width, height)), (x, y))
 
-    pygame.draw.rect(screen, (120, 120, 120), (x, y, width, height), 2)
+    pg.draw.rect(screen, (120, 120, 120), (x, y, width, height), 2)
 
 
 def draw_visualizer(x, y, width, height):
-    BAR_WIDTH = numpy.ceil(width / (SAMPLES // 2))
+    bars = pg.Surface((SAMPLES // 2, 100))
+
     for i, amp in enumerate(history[:, 0] / 4):
-        pygame.draw.rect(
-            screen, (0, 255, 0), (x + i * BAR_WIDTH, y + height - amp, BAR_WIDTH, amp)
-        )
+        pg.draw.rect(bars, (0, 255, 0), (i, y + 100 - amp, 1, amp))
 
-    pygame.draw.rect(screen, (120, 120, 120), (x, y, width, height), 2)
+    screen.blit(pg.transform.smoothscale(bars, (width, height)), (x, y))
+
+    pg.draw.rect(screen, (120, 120, 120), (x, y, width, height), 2)
 
 
-running = True
-while running:
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-        elif event.type == pygame.VIDEORESIZE:
-            WIDTH, HEIGHT = event.w, event.h
+with device.recorder(FREQUENCY, 1, SAMPLES) as stream:
+    running = True
+    while running:
+        for event in pg.event.get():
+            if event.type == pg.QUIT:
+                running = False
+            elif event.type == pg.VIDEORESIZE:
+                WIDTH, HEIGHT = event.w, event.h
 
-    data = numpy.frombuffer(stream.read(SAMPLES), numpy.int16)
-    amp = numpy.abs(numpy.fft.fft(data)[: SAMPLES // 2 + 1])
+        data = stream.record(SAMPLES).flatten() * HANN_WINDOW
 
-    row = 2 * amp / SAMPLES
-    row[0] /= 2
-    row[-1] /= 2
-    row = numpy.clip(row, 0, 255)
+        amp = np.abs(np.fft.fft(data)[: SAMPLES // 2 + 1])
+        amp = 20 * np.log10(amp + 0.000001)
 
-    history[:, 1:] = history[:, :-1]
-    history[:, 0] = row
+        row = 2 * amp / SAMPLES * 7500
+        row[0] /= 2
+        row[-1] /= 2
+        row = np.clip(row, 0, 255)
 
-    screen.fill((0, 0, 0))
+        history[:, 1:] = history[:, :-1]
+        history[:, 0] = row
 
-    draw_visualizer(10, 10, WIDTH - 20, 70)
-    draw_heatmap(10, 90, WIDTH - 20, HEIGHT - 100)
+        screen.fill((0, 0, 0))
 
-    pygame.display.flip()
+        draw_visualizer(10, 10, WIDTH - 20, 70)
+        draw_heatmap(10, 90, WIDTH - 20, HEIGHT - 100)
 
-    clock.tick()
+        pg.display.flip()
 
-stream.stop_stream()
-stream.close()
+        clock.tick()
 
-audio.terminate()
-
-pygame.quit()
+pg.quit()
