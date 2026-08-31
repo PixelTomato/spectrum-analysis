@@ -7,7 +7,7 @@ import soundcard as sc
 WIDTH = 1000
 HEIGHT = 600
 
-SAMPLE_RATE = 48000 * 2
+SAMPLE_RATE = 48000
 SAMPLES = 2048
 
 ROW_COUNT = 256
@@ -23,14 +23,16 @@ def capture_routine():
 
     HANN_WINDOW = np.hanning(SAMPLES)
 
-    device = sc.get_microphone(id=str(sc.default_speaker().name), include_loopback=True)
+    # device = sc.get_microphone(id=str(sc.default_speaker().name), include_loopback=True)
 
-    with device.recorder(SAMPLE_RATE, 1, SAMPLES) as stream:
+    device = sc.default_microphone()
+
+    with device.recorder(SAMPLE_RATE, 1, 512) as stream:
         while dpg.is_dearpygui_running:
             data = stream.record(SAMPLES).flatten() * HANN_WINDOW
 
             fft_data = np.abs(np.fft.fft(data)[:COL_COUNT])
-            fft_data = np.clip(np.log10(fft_data + 1e-6) / 2.0, 0.0, 1.0)
+            fft_data = np.clip(np.log10(fft_data + 1e-6) / 2.5, 0.0, 1.0)
 
             capture_data = fft_data
             capture_flag += 1
@@ -40,7 +42,7 @@ capture_thread = threading.Thread(target=capture_routine, daemon=True)
 capture_thread.start()
 
 
-def crop_heatmap(sender, value):
+def crop_heatmap(_, value):
     dpg.set_axis_limits("x_axis", 0, value)
 
 
@@ -86,9 +88,9 @@ while dpg.is_dearpygui_running():
         history_data[0, :] = row
 
         heatmap_colors = np.flipud(heatmap_data.reshape(ROW_COUNT, COL_COUNT, 4))
-        heatmap_colors[:, :, 0] = 0.0
-        heatmap_colors[:, :, 1] = history_data
-        heatmap_colors[:, :, 2] = 0.0
+        heatmap_colors[:, :, 0] = np.clip((-0.42 * history_data ** 3 + 1.25 * history_data ** 2 + 0.17 * history_data + 0.02), 0.0, 1.0)
+        heatmap_colors[:, :, 1] = np.clip((1.83 * history_data ** 3 - 1.27 * history_data ** 2 + 0.44 * history_data), 0.0, 1.0)
+        heatmap_colors[:, :, 2] = np.clip((-2.85 * history_data ** 3 + 5.16 * history_data ** 2 - 1.63 * history_data + 0.3 - 0.25 * np.exp(-120 * history_data)), 0.0, 1.0)
         heatmap_colors[:, :, 3] = 1.0
 
         dpg.set_value("heatmap_texture", heatmap_data)
