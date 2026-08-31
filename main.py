@@ -18,30 +18,45 @@ LOG_FILTER = True
 
 capture_data = np.zeros(COL_COUNT, dtype=np.float32)
 capture_flag = 0
+capture_stop = threading.Event()
+capture_thread = None
 
 
-def capture_routine():
+def capture_routine(sample_rate, sample_count):
     global capture_data
     global capture_flag
 
-    HANN_WINDOW = np.hanning(SAMPLES)
+    print(f"Started capture @ {sample_rate} Hz, {sample_count}/s")
+
+    HANN_WINDOW = np.hanning(sample_count)
 
     # device = sc.get_microphone(id=str(sc.default_speaker().name), include_loopback=True)
 
     device = sc.default_microphone()
 
-    with device.recorder(SAMPLE_RATE, 1, 512) as stream:
-        while dpg.is_dearpygui_running:
-            data = stream.record(SAMPLES).flatten() * HANN_WINDOW
+    with device.recorder(sample_rate, 1, 512) as stream:
+        while dpg.is_dearpygui_running and not capture_stop.is_set():
+            data = stream.record(sample_count).flatten() * HANN_WINDOW
 
             fft_data = np.abs(np.fft.fft(data)[:COL_COUNT])
 
             capture_data = fft_data
             capture_flag += 1
 
+    print("Stopping capture")
 
-capture_thread = threading.Thread(target=capture_routine, daemon=True)
-capture_thread.start()
+    capture_stop.clear()
+
+
+def start_capture():
+    global capture_thread
+
+    if capture_thread is not None and capture_thread.is_alive():
+        capture_stop.set()
+        capture_thread.join()
+
+    capture_thread = threading.Thread(target=capture_routine, daemon=True, args=(SAMPLE_RATE, SAMPLES))
+    capture_thread.start()
 
 
 def slider_callback(sender, value):
@@ -62,6 +77,8 @@ def checkbox_callback(sender, value):
 
 history_data = np.zeros((ROW_COUNT, COL_COUNT), dtype=np.float32)
 heatmap_data = np.zeros((ROW_COUNT, COL_COUNT, 4), dtype=np.float32)
+
+start_capture()
 
 dpg.create_context()
 dpg.create_viewport(title="Spectrum Analysis", width=WIDTH, height=HEIGHT, vsync=True)
@@ -95,8 +112,13 @@ with dpg.window(label="Options", width=250, height=HEIGHT, no_close=True, no_mov
         tag="log_filter_checkbox",
     )
 
+    dpg.add_button(
+        label="Restart Capture",
+        callback=start_capture,
+    )
+
 with dpg.window(label="Spectrogram", pos=(250, 0), width=480, height=360, no_close=True):  # noqa: SIM117
-    with dpg.plot(width=-1, height=-1, tag="spectrogram_plot"):
+    with dpg.plot(width=-1, height=-20, tag="spectrogram_plot"):
         dpg.add_plot_axis(dpg.mvXAxis, label="Frequency (Hz)", tag="x_axis")
         dpg.add_plot_axis(dpg.mvYAxis, label="Time (Frames)", tag="y_axis")
 
@@ -125,9 +147,11 @@ while dpg.is_dearpygui_running():
         v *= MULTIPLIER
 
         heatmap_colors = np.flipud(heatmap_data.reshape(ROW_COUNT, COL_COUNT, 4))
-        heatmap_colors[:, :, 0] = np.clip((-0.42 * v ** 3 + 1.25 * v ** 2 + 0.17 * v + 0.02), 0.0, 1.0)
-        heatmap_colors[:, :, 1] = np.clip((1.83 * v ** 3 - 1.27 * v ** 2 + 0.44 * v), 0.0, 1.0)
-        heatmap_colors[:, :, 2] = np.clip((-2.85 * v ** 3 + 5.16 * v ** 2 - 1.63 * v + 0.3 - 0.25 * np.exp(-120 * v)), 0.0, 1.0)
+        heatmap_colors[:, :, 0] = np.clip((-0.42 * v**3 + 1.25 * v**2 + 0.17 * v + 0.02), 0.0, 1.0)
+        heatmap_colors[:, :, 1] = np.clip((1.83 * v**3 - 1.27 * v**2 + 0.44 * v), 0.0, 1.0)
+        heatmap_colors[:, :, 2] = np.clip(
+            (-2.85 * v**3 + 5.16 * v**2 - 1.63 * v + 0.3 - 0.25 * np.exp(-120 * v)), 0.0, 1.0
+        )
         heatmap_colors[:, :, 3] = 1.0
 
         dpg.set_value("heatmap_texture", heatmap_data)
