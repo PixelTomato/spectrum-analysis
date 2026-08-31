@@ -39,6 +39,11 @@ def capture_routine():
 capture_thread = threading.Thread(target=capture_routine, daemon=True)
 capture_thread.start()
 
+
+def crop_heatmap(sender, value):
+    dpg.set_axis_limits("x_axis", 0, value)
+
+
 history_data = np.zeros((ROW_COUNT, COL_COUNT), dtype=np.float32)
 heatmap_data = np.zeros((ROW_COUNT, COL_COUNT, 4), dtype=np.float32)
 
@@ -49,9 +54,16 @@ with dpg.texture_registry():
     dpg.add_dynamic_texture(COL_COUNT, ROW_COUNT, heatmap_data, tag="heatmap_texture")
 
 with dpg.window(label="Options", width=250, height=HEIGHT, no_close=True, no_move=True):
-    dpg.add_text("Testing...")
+    dpg.add_slider_float(
+        label="Max Hz",
+        default_value=(SAMPLE_RATE / 2),
+        min_value=100.0,
+        max_value=(SAMPLE_RATE / 2),
+        callback=crop_heatmap,
+        tag="heatmap_crop_slider",
+    )
 
-with dpg.window(label="Spectrogram", pos=(250, 0), width=750, height=600, no_close=True, no_resize=True):  # noqa: SIM117
+with dpg.window(label="Spectrogram", pos=(250, 0), width=750, height=600, no_close=True):  # noqa: SIM117
     with dpg.plot(width=-1, height=-1, tag="spectrogram_plot"):
         dpg.add_plot_axis(dpg.mvXAxis, label="Frequency (Hz)", tag="x_axis")
         dpg.add_plot_axis(dpg.mvYAxis, label="Time (Frames)", tag="y_axis")
