@@ -11,9 +11,9 @@ FREQUENCY = 48000
 SAMPLES = 2048
 
 ROW_COUNT = 256
-BIN_COUNT = SAMPLES // 2 + 1
+COL_COUNT = SAMPLES // 2 + 1
 
-last_capture = np.zeros(BIN_COUNT, dtype=np.float32)
+last_capture = np.zeros(COL_COUNT, dtype=np.float32)
 
 
 def capture_routine():
@@ -27,7 +27,7 @@ def capture_routine():
         while dpg.is_dearpygui_running:
             data = stream.record(SAMPLES).flatten() * HANN_WINDOW
 
-            fft_data = np.abs(np.fft.fft(data)[:BIN_COUNT])
+            fft_data = np.abs(np.fft.fft(data)[:COL_COUNT])
             fft_data = np.clip(np.log10(fft_data + 1e-6) / 2.0, 0.0, 1.0)
 
             last_capture = fft_data
@@ -36,50 +36,48 @@ def capture_routine():
 capture_thread = threading.Thread(target=capture_routine, daemon=True)
 capture_thread.start()
 
-heatmap_data = np.zeros(BIN_COUNT * ROW_COUNT, dtype=np.float32)
+history_data = np.zeros((ROW_COUNT, COL_COUNT), dtype=np.float32)
+heatmap_data = np.zeros((ROW_COUNT, COL_COUNT, 4), dtype=np.float32)
 
 dpg.create_context()
 dpg.show_metrics()
 dpg.create_viewport(title="Spectrum Analysis", width=WIDTH, height=HEIGHT, vsync=True)
 
+with dpg.texture_registry():
+    dpg.add_dynamic_texture(COL_COUNT, ROW_COUNT, heatmap_data, tag="heatmap_texture")
+
 with dpg.window(label="Options", width=250, height=HEIGHT, no_close=True, no_move=True):
     dpg.add_text("Testing...")
 
-with dpg.window(label="Spectrogram", pos=(250, 0), width=750, height=600, no_close=True, no_resize=True):
+with dpg.window(label="Spectrogram", pos=(250, 0), width=750, height=600, no_close=True, no_resize=True):  # noqa: SIM117
     with dpg.plot(width=-1, height=-1, tag="spectrogram_plot"):
-        dpg.add_plot_axis(dpg.mvXAxis, label="Hz", tag="x_axis")
-        dpg.add_plot_axis(dpg.mvYAxis, tag="y_axis")
+        dpg.add_plot_axis(dpg.mvXAxis, label="Frequency (Hz)", tag="x_axis")
+        dpg.add_plot_axis(dpg.mvYAxis, label="Time (Frames)", tag="y_axis")
 
-        dpg.set_axis_limits("x_axis", 0, ROW_COUNT)
-        dpg.set_axis_limits("y_axis", 0, BIN_COUNT)
-
-        dpg.add_heat_series(
-            x=heatmap_data,
-            rows=ROW_COUNT,
-            cols=BIN_COUNT,
-            label="Audio",
+        dpg.add_image_series(
+            texture_tag="heatmap_texture",
             bounds_min=(0, 0),
-            bounds_max=(ROW_COUNT, BIN_COUNT),
-            format="",
-            tag="spectrogram_series",
+            bounds_max=(COL_COUNT, ROW_COUNT),
             parent="x_axis",
         )
-
-        dpg.bind_colormap("spectrogram_plot", dpg.mvPlotColormap_Hot)
-
 
 dpg.setup_dearpygui()
 dpg.show_viewport()
 
-
 while dpg.is_dearpygui_running():
     row = last_capture
 
-    history = heatmap_data.reshape(ROW_COUNT, BIN_COUNT)
-    history[1:, :] = history[:-1, :]
-    history[0, :] = last_capture
+    # history_data[1:, :] = history_data[:-1, :]
+    history_data[1:, :] = history_data[:-1, :]
+    history_data[0, :] = row
 
-    dpg.set_value("spectrogram_series", [heatmap_data])
+    heatmap_colors = heatmap_data.reshape(ROW_COUNT, COL_COUNT, 4)
+    heatmap_colors[:, :, 0] = 0.0
+    heatmap_colors[:, :, 1] = history_data
+    heatmap_colors[:, :, 2] = 0.0
+    heatmap_colors[:, :, 3] = 1.0
+
+    dpg.set_value("heatmap_texture", heatmap_data)
 
     dpg.render_dearpygui_frame()
 
