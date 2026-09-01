@@ -16,6 +16,13 @@ COL_COUNT = SAMPLES // 2 + 1
 MULTIPLIER = 1.0
 LOG_FILTER = True
 
+history_data = np.zeros((ROW_COUNT, COL_COUNT), dtype=np.float32)
+
+heatmap_data = np.zeros((ROW_COUNT, COL_COUNT, 4), dtype=np.float32)
+heatmap_data[:, :, 3] = 1.0
+
+heatmap_dirty = False
+
 capture_data = np.zeros(COL_COUNT, dtype=np.float32)
 capture_flag = 0
 capture_stop = threading.Event()
@@ -36,7 +43,7 @@ def capture_routine(sample_rate, sample_count):
         while dpg.is_dearpygui_running and not capture_stop.is_set():
             data = stream.record(sample_count).flatten() * HANN_WINDOW
 
-            fft_data = np.abs(np.fft.fft(data)[:COL_COUNT])
+            fft_data = np.abs(np.fft.rfft(data)[:COL_COUNT])
 
             capture_data = fft_data
             capture_flag += 1
@@ -55,24 +62,40 @@ def start_capture():
     capture_thread.start()
 
 
+def rebuild_heatmap():
+    history = np.flipud(history_data.copy())
+
+    if LOG_FILTER:
+        history = np.clip((np.log10(history + 1e-6) / 3), 0.0, 1.0)
+
+    history *= MULTIPLIER
+
+    heatmap_data[:, :, 0] = history * 0.1
+    heatmap_data[:, :, 1] = history * 0.5
+    heatmap_data[:, :, 2] = history * 1.0
+
+    dpg.set_value("heatmap_texture", heatmap_data.ravel())
+
+
 def slider_callback(sender, value):
+    global heatmap_dirty
     global MULTIPLIER
 
     if sender == "heatmap_crop_slider":
         dpg.set_axis_limits("x_axis", 0, value)
     elif sender == "amplifier_slider":
         MULTIPLIER = value
+        heatmap_dirty = True
 
 
 def checkbox_callback(sender, value):
+    global heatmap_dirty
     global LOG_FILTER
 
     if sender == "log_filter_checkbox":
-        LOG_FILTER = not LOG_FILTER
+        LOG_FILTER = value
+        heatmap_dirty = True
 
-
-history_data = np.zeros((ROW_COUNT, COL_COUNT), dtype=np.float32)
-heatmap_data = np.zeros((ROW_COUNT, COL_COUNT, 4), dtype=np.float32)
 
 start_capture()
 
@@ -133,28 +156,30 @@ dpg.show_viewport()
 
 last_capture = 0
 
+row = np.zeros(COL_COUNT, dtype=np.float32)
+
 while dpg.is_dearpygui_running():
     if capture_flag > last_capture:
-        row = capture_data
+        row = capture_data.copy()
         last_capture = capture_flag
 
         history_data[1:, :] = history_data[:-1, :]
         history_data[0, :] = row
 
-        v = history_data.copy()
-
         if LOG_FILTER:
-            v = np.clip(np.log10(v + 1e-6) / 3, 0.0, 1.0)
+            row = np.clip((np.log10(row + 1e-6) / 3), 0.0, 1.0)
 
-        v *= MULTIPLIER
+        row *= MULTIPLIER
 
-        heatmap_colors = np.flipud(heatmap_data.reshape(ROW_COUNT, COL_COUNT, 4))
-        heatmap_colors[:, :, 0] = v * 0.1
-        heatmap_colors[:, :, 1] = v * 0.5
-        heatmap_colors[:, :, 2] = v * 1.0
-        heatmap_colors[:, :, 3] = 1.0
+        heatmap_data[:-1, :, :3] = heatmap_data[1:, :, :3]
+        heatmap_data[-1, :, 0] = row * 0.1
+        heatmap_data[-1, :, 1] = row * 0.5
+        heatmap_data[-1, :, 2] = row * 1.0
 
-        dpg.set_value("heatmap_texture", heatmap_data)
+    if heatmap_dirty:
+        rebuild_heatmap()
+    else:
+        dpg.set_value("heatmap_texture", heatmap_data.ravel())
 
     dpg.render_dearpygui_frame()
 
