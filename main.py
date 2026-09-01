@@ -10,8 +10,8 @@ HEIGHT = 600
 SAMPLE_RATE = 48000
 SAMPLE_COUNT = 2048
 
-ROW_COUNT = 256
-COL_COUNT = SAMPLE_COUNT // 2 + 1
+ROW_COUNT = SAMPLE_COUNT // 2 + 1
+COL_COUNT = 256
 
 MULTIPLIER = 1.0
 LOG_FILTER = True
@@ -23,7 +23,7 @@ heatmap_data[:, :, 3] = 1.0
 
 heatmap_dirty = False
 
-capture_data = np.zeros(COL_COUNT, dtype=np.float32)
+capture_data = np.zeros(ROW_COUNT, dtype=np.float32)
 capture_flag = 0
 capture_stop = threading.Event()
 capture_thread = None
@@ -39,7 +39,7 @@ def capture_routine(device, sample_rate, sample_count):
         while dpg.is_dearpygui_running and not capture_stop.is_set():
             data = stream.record(sample_count).flatten() * HANN_WINDOW
 
-            fft_data = np.abs(np.fft.rfft(data)[:COL_COUNT])
+            fft_data = np.abs(np.fft.rfft(data))
 
             capture_data = fft_data
             capture_flag += 1
@@ -59,7 +59,7 @@ def start_capture(device, sample_rate, sample_count):
 
 
 def rebuild_heatmap():
-    history = np.flipud(history_data.copy())
+    history = history_data.copy()
 
     if LOG_FILTER:
         history = np.clip((np.log10(history + 1e-6) / 3), 0.0, 1.0)
@@ -70,7 +70,7 @@ def rebuild_heatmap():
     heatmap_data[:, :, 1] = history * 0.5
     heatmap_data[:, :, 2] = history * 1.0
 
-    dpg.set_value("heatmap_texture", heatmap_data.ravel())
+    dpg.set_value("heatmap_texture", np.flipud(heatmap_data).ravel())
 
 
 def slider_callback(sender, value):
@@ -78,7 +78,7 @@ def slider_callback(sender, value):
     global MULTIPLIER
 
     if sender == "heatmap_crop_slider":
-        dpg.set_axis_limits("x_axis", 0, value)
+        dpg.set_axis_limits("y_axis", 0, value)
     elif sender == "amplifier_slider":
         MULTIPLIER = value
         heatmap_dirty = True
@@ -156,13 +156,13 @@ with dpg.window(label="Spectrogram", pos=(260, 10), width=720, height=480, no_cl
         )
 
     with dpg.plot(pos=(216, 27), width=-1, height=-1, tag="spectrogram_plot"):
-        dpg.add_plot_axis(dpg.mvXAxis, label="Frequency (Hz)", tag="x_axis")
-        dpg.add_plot_axis(dpg.mvYAxis, label="Time (Frames)", tag="y_axis")
+        dpg.add_plot_axis(dpg.mvXAxis, label="Time (Samples)", tag="x_axis")
+        dpg.add_plot_axis(dpg.mvYAxis, label="Frequency (Hz)", tag="y_axis")
 
         dpg.add_image_series(
             texture_tag="heatmap_texture",
             bounds_min=(0, 0),
-            bounds_max=(SAMPLE_RATE / 2, ROW_COUNT),
+            bounds_max=(COL_COUNT, SAMPLE_RATE / 2 + 1),
             parent="x_axis",
         )
 
@@ -178,23 +178,23 @@ while dpg.is_dearpygui_running():
         row = capture_data.copy()
         last_capture = capture_flag
 
-        history_data[1:, :] = history_data[:-1, :]
-        history_data[0, :] = row
+        history_data[:, 1:] = history_data[:, :-1]
+        history_data[:, 0] = row
 
         if LOG_FILTER:
             row = np.clip((np.log10(row + 1e-6) / 3), 0.0, 1.0)
 
         row *= MULTIPLIER
 
-        heatmap_data[:-1, :, :3] = heatmap_data[1:, :, :3]
-        heatmap_data[-1, :, 0] = row * 0.1
-        heatmap_data[-1, :, 1] = row * 0.5
-        heatmap_data[-1, :, 2] = row * 1.0
+        heatmap_data[:, 1:, :3] = heatmap_data[:, :-1, :3]
+        heatmap_data[:, 0, 0] = row * 0.1
+        heatmap_data[:, 0, 1] = row * 0.5
+        heatmap_data[:, 0, 2] = row * 1.0
 
-    if heatmap_dirty:
-        rebuild_heatmap()
-    else:
-        dpg.set_value("heatmap_texture", heatmap_data.ravel())
+        if heatmap_dirty:
+            rebuild_heatmap()
+        else:
+            dpg.set_value("heatmap_texture", np.flipud(heatmap_data).ravel())
 
     dpg.render_dearpygui_frame()
 
