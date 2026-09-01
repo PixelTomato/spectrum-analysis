@@ -5,13 +5,15 @@ import numpy as np
 import soundcard as sc
 
 WIDTH = 1000
-HEIGHT = 600
+HEIGHT = 710
 
 SAMPLE_RATE = 48000
 SAMPLE_COUNT = 2048
 
 ROW_COUNT = SAMPLE_COUNT // 2 + 1
 COL_COUNT = 256
+
+BIN_WIDTH = SAMPLE_RATE / SAMPLE_COUNT
 
 MULTIPLIER = 1.0
 LOG_FILTER = True
@@ -39,7 +41,7 @@ def capture_routine(device, sample_rate, sample_count):
         while dpg.is_dearpygui_running and not capture_stop.is_set():
             data = stream.record(sample_count).flatten() * HANN_WINDOW
 
-            fft_data = np.abs(np.fft.rfft(data))[::-1]
+            fft_data = np.abs(np.fft.rfft(data))
 
             capture_data = fft_data
             capture_flag += 1
@@ -78,7 +80,7 @@ def slider_callback(sender, value):
     global MULTIPLIER
 
     if sender == "heatmap_crop_slider":
-        dpg.set_axis_limits("y_axis", 0, value)
+        dpg.set_axis_limits("spectrogram_y_axis", 0, value)
     elif sender == "amplifier_slider":
         MULTIPLIER = value
         heatmap_dirty = True
@@ -126,7 +128,7 @@ with dpg.window(label="Options", width=250, height=HEIGHT, no_close=True, no_mov
         tag="source_combo",
     )
 
-with dpg.window(label="Spectrogram", pos=(260, 10), width=720, height=480, no_close=True, no_scrollbar=True):
+with dpg.window(label="Spectrogram", pos=(260, 10), width=731, height=480, no_close=True, no_scrollbar=True):
     with dpg.child_window(border=True, width=200, height=-1):
         dpg.add_slider_float(
             label="Max Hz",
@@ -156,15 +158,35 @@ with dpg.window(label="Spectrogram", pos=(260, 10), width=720, height=480, no_cl
         )
 
     with dpg.plot(pos=(216, 27), width=-1, height=-1, tag="spectrogram_plot"):
-        dpg.add_plot_axis(dpg.mvXAxis, label="Time (Samples)", tag="x_axis")
-        dpg.add_plot_axis(dpg.mvYAxis, label="Frequency (Hz)", tag="y_axis")
+        dpg.add_plot_axis(dpg.mvXAxis, label="Time (Samples)", tag="spectrogram_x_axis")
+        dpg.add_plot_axis(dpg.mvYAxis, label="Frequency (Hz)", tag="spectrogram_y_axis")
 
         dpg.add_image_series(
             texture_tag="heatmap_texture",
             bounds_min=(0, 0),
             bounds_max=(COL_COUNT, SAMPLE_RATE / 2 + 1),
-            parent="x_axis",
+            uv_min=(0.0, 1.0),
+            uv_max=(1.0, 0.0),
+            parent="spectrogram_x_axis",
         )
+
+        dpg.set_axis_limits_constraints("spectrogram_x_axis", 0.0, COL_COUNT)
+        dpg.set_axis_limits_constraints("spectrogram_y_axis", 0.0, SAMPLE_RATE / 2 + 1)
+
+with dpg.window(label="Spectrum Analyzer", pos=(260, 500), width=731, height=200, no_close=True):  # noqa: SIM117
+    with dpg.plot(width=-1, height=-1, tag="spectrum_plot"):
+        dpg.add_plot_axis(dpg.mvXAxis, label="Frequency (Hz)", tag="spectrum_x_axis")
+        dpg.add_plot_axis(dpg.mvYAxis, label="Amplitude", tag="spectrum_y_axis", lock_min=True)
+
+        dpg.add_bar_series(
+            x=np.arange(ROW_COUNT),
+            y=capture_data,
+            parent="spectrum_x_axis",
+            tag="spectrum_series",
+        )
+
+        dpg.set_axis_limits("spectrum_x_axis", 0.0, SAMPLE_RATE / 2)
+        dpg.set_axis_limits_constraints("spectrum_y_axis", 0.0, 10.0)
 
 dpg.setup_dearpygui()
 dpg.show_viewport()
@@ -195,6 +217,8 @@ while dpg.is_dearpygui_running():
             rebuild_heatmap()
         else:
             dpg.set_value("heatmap_texture", heatmap_data)
+
+        dpg.set_value("spectrum_series", (np.arange(SAMPLE_COUNT / 2) * BIN_WIDTH, row))
 
     dpg.render_dearpygui_frame()
 
