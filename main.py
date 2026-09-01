@@ -39,7 +39,7 @@ def capture_routine(device, sample_rate, sample_count):
         while dpg.is_dearpygui_running and not capture_stop.is_set():
             data = stream.record(sample_count).flatten() * HANN_WINDOW
 
-            fft_data = np.abs(np.fft.rfft(data))
+            fft_data = np.abs(np.fft.rfft(data))[::-1]
 
             capture_data = fft_data
             capture_flag += 1
@@ -70,7 +70,7 @@ def rebuild_heatmap():
     heatmap_data[:, :, 1] = history * 0.5
     heatmap_data[:, :, 2] = history * 1.0
 
-    dpg.set_value("heatmap_texture", np.flipud(heatmap_data).ravel())
+    dpg.set_value("heatmap_texture", heatmap_data)
 
 
 def slider_callback(sender, value):
@@ -194,8 +194,12 @@ while dpg.is_dearpygui_running():
         if heatmap_dirty:
             rebuild_heatmap()
         else:
-            dpg.set_value("heatmap_texture", np.flipud(heatmap_data).ravel())
+            dpg.set_value("heatmap_texture", heatmap_data)
 
     dpg.render_dearpygui_frame()
 
 dpg.destroy_context()
+
+if capture_thread is not None and capture_thread.is_alive():
+    capture_stop.set()
+    capture_thread.join()
