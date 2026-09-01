@@ -8,10 +8,10 @@ WIDTH = 1000
 HEIGHT = 600
 
 SAMPLE_RATE = 48000
-SAMPLES = 2048
+SAMPLE_COUNT = 2048
 
 ROW_COUNT = 256
-COL_COUNT = SAMPLES // 2 + 1
+COL_COUNT = SAMPLE_COUNT // 2 + 1
 
 MULTIPLIER = 1.0
 LOG_FILTER = True
@@ -29,15 +29,11 @@ capture_stop = threading.Event()
 capture_thread = None
 
 
-def capture_routine(sample_rate, sample_count):
+def capture_routine(device, sample_rate, sample_count):
     global capture_data
     global capture_flag
 
     HANN_WINDOW = np.hanning(sample_count)
-
-    # device = sc.get_microphone(id=str(sc.default_speaker().name), include_loopback=True)
-
-    device = sc.default_microphone()
 
     with device.recorder(sample_rate, 1, 512) as stream:
         while dpg.is_dearpygui_running and not capture_stop.is_set():
@@ -51,14 +47,14 @@ def capture_routine(sample_rate, sample_count):
     capture_stop.clear()
 
 
-def start_capture():
+def start_capture(device, sample_rate, sample_count):
     global capture_thread
 
     if capture_thread is not None and capture_thread.is_alive():
         capture_stop.set()
         capture_thread.join()
 
-    capture_thread = threading.Thread(target=capture_routine, daemon=True, args=(SAMPLE_RATE, SAMPLES))
+    capture_thread = threading.Thread(target=capture_routine, daemon=True, args=(device, sample_rate, sample_count))
     capture_thread.start()
 
 
@@ -97,7 +93,23 @@ def checkbox_callback(sender, value):
         heatmap_dirty = True
 
 
-start_capture()
+def combo_callback(sender, value):
+    if sender == "source_combo":
+        if value == "Default Microphone":
+            start_capture(
+                sc.default_microphone(),
+                SAMPLE_RATE,
+                SAMPLE_COUNT,
+            )
+        elif value == "System Audio":
+            start_capture(
+                sc.get_microphone(id=str(sc.default_speaker().name), include_loopback=True),
+                SAMPLE_RATE,
+                SAMPLE_COUNT,
+            )
+
+
+start_capture(sc.default_microphone(), SAMPLE_RATE, SAMPLE_COUNT)
 
 dpg.create_context()
 dpg.create_viewport(title="Spectrum Analysis", width=WIDTH, height=HEIGHT, vsync=True)
@@ -106,9 +118,12 @@ with dpg.texture_registry():
     dpg.add_dynamic_texture(COL_COUNT, ROW_COUNT, heatmap_data, tag="heatmap_texture")
 
 with dpg.window(label="Options", width=250, height=HEIGHT, no_close=True, no_move=True, no_collapse=True):
-    dpg.add_button(
-        label="Restart Capture",
-        callback=start_capture,
+    dpg.add_combo(
+        label="Source",
+        items=["Default Microphone", "System Audio"],
+        default_value="Default Microphone",
+        callback=combo_callback,
+        tag="source_combo",
     )
 
 with dpg.window(label="Spectrogram", pos=(260, 10), width=720, height=480, no_close=True, no_scrollbar=True):
