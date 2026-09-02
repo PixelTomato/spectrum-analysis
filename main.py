@@ -1,4 +1,5 @@
 import threading
+import time
 
 import dearpygui.dearpygui as dpg
 import numpy as np
@@ -17,6 +18,8 @@ BIN_WIDTH = SAMPLE_RATE / SAMPLE_COUNT
 
 MULTIPLIER = 1.0
 LOG_FILTER = True
+
+is_recording = True
 
 history_data = np.zeros((ROW_COUNT, COL_COUNT), dtype=np.float32)
 
@@ -39,12 +42,15 @@ def capture_routine(device, sample_rate, sample_count):
 
     with device.recorder(sample_rate, 1, 512) as stream:
         while dpg.is_dearpygui_running and not capture_stop.is_set():
-            data = stream.record(sample_count).flatten() * HANN_WINDOW
+            if is_recording:
+                data = stream.record(sample_count).flatten() * HANN_WINDOW
 
-            fft_data = np.abs(np.fft.rfft(data))
+                fft_data = np.abs(np.fft.rfft(data))
 
-            capture_data = fft_data
-            capture_flag += 1
+                capture_data = fft_data
+                capture_flag += 1
+            else:
+                time.sleep(0.1)
 
     capture_stop.clear()
 
@@ -88,11 +94,14 @@ def slider_callback(sender, value):
 
 def checkbox_callback(sender, value):
     global heatmap_dirty
+    global is_recording
     global LOG_FILTER
 
     if sender == "log_filter_checkbox":
         LOG_FILTER = value
         heatmap_dirty = True
+    if sender == "recording_checkbox":
+        is_recording = value
 
 
 def combo_callback(sender, value):
@@ -126,6 +135,13 @@ with dpg.window(label="Options", width=250, height=HEIGHT, no_close=True, no_mov
         default_value="Default Microphone",
         callback=combo_callback,
         tag="source_combo",
+    )
+
+    dpg.add_checkbox(
+        label="Enable Recording",
+        default_value=True,
+        callback=checkbox_callback,
+        tag="recording_checkbox",
     )
 
 with dpg.window(label="Spectrogram", pos=(260, 10), width=731, height=480, no_close=True, no_scrollbar=True):
