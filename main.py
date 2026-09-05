@@ -229,12 +229,12 @@ while dpg.is_dearpygui_running():
         heatmap_data[:, 0, 1] = row * 0.5
         heatmap_data[:, 0, 2] = row * 1.0
 
-        if heatmap_dirty:
-            rebuild_heatmap()
-        else:
-            dpg.set_value("heatmap_texture", heatmap_data)
+        dpg.set_value("heatmap_texture", heatmap_data)
 
         dpg.set_value("spectrum_series", (np.arange(SAMPLE_COUNT / 2) * BIN_WIDTH, row))
+
+    if heatmap_dirty:
+        rebuild_heatmap()
 
     dpg.render_dearpygui_frame()
 
